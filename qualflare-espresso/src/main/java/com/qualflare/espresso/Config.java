@@ -90,6 +90,17 @@ final class Config {
         }
     }
 
+    /**
+     * Gradle's own argument, not one of ours: it names the directory Gradle will pull off the
+     * device after the run. Its presence is what tells the sink that test-storage output will
+     * actually be collected -- measured absent on API 24 and present on 29 and 34
+     * (docs/SPIKE-2026-09-20.md).
+     */
+    static String additionalTestOutputDir() {
+        String v = argument("additionalTestOutputDir");
+        return isSet(v) ? v : null;
+    }
+
     private static String resolve(String property, String env, String fallback) {
         String v = argument(property);
         if (isSet(v)) {
