@@ -1,0 +1,88 @@
+# The per-PR gate: everything that does not need a device.
+#
+# The emulator lives in android-spike.yml, on workflow_dispatch plus a weekly cron,
+# because an emulator leg costs 15-25 minutes and would make this gate both slow and
+# device-flaky.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Assemble, lint, unit test (JDK ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '21']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: ./gradlew :qualflare-espresso:assembleRelease --stacktrace
+      # NewApi is an error, which is the guard rail for minSdk 24: java.time,
+      # java.util.Base64 and java.nio.file are all API 26+ and must stay out of
+      # src/main. Core library desugaring would hide this, and it is a consumer
+      # setting an AAR cannot assume.
+      - run: ./gradlew :qualflare-espresso:lint --stacktrace
+      - run: ./gradlew :qualflare-espresso:testDebugUnitTest --stacktrace
+
+      # The androidTest APK must build too: it is what the emulator workflow installs,
+      # and a broken fixture should fail here rather than 20 minutes into a device run.
+      - run: ./gradlew :fixture-app:assembleDebugAndroidTest --stacktrace
+
+      - name: No API-26+ types in the library's sources
+        run: |
+          # Belt and braces next to lint: lint checks call sites, this catches an
+          # import that a future contributor adds behind a `if (SDK_INT >= …)` guard
+          # and then forgets to remove.
+          banned='java\.nio\.file|java\.time|java\.util\.Base64|java\.util\.stream\.Collectors\.joining|String\.join|List\.of|Map\.of|Set\.of|Objects\.requireNonNullElse'
+          if hits=$(grep -rnE "$banned" qualflare-espresso/src/main --include='*.java'); then
+            echo "::error::these are API 26+ (or 30+) and must not appear in the library:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "no banned APIs in qualflare-espresso/src/main"
+
+      - name: AAR shape
+        run: |
+          aar=qualflare-espresso/build/outputs/aar/qualflare-espresso-release.aar
+          unzip -l "$aar"
+          # consumer-rules.pro must reach the consumer, or R8 deletes the listener
+          # and the symptom is a green build with no report.
+          unzip -l "$aar" | grep -q proguard.txt || { echo "::error::no proguard.txt in the AAR"; exit 1; }
+          # The library asks for nothing in the consumer's manifest.
+          if unzip -p "$aar" AndroidManifest.xml | grep -qE 'uses-permission|<provider|<service|<activity'; then
+            echo "::error::the AAR manifest declares components or permissions"; exit 1
+          fi
+          echo "AAR shape ok"
+
+  compat:
+    name: Compile against the androidx.test floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      # 1.4.0 is the first androidx.test:monitor with
+      # androidx.test.platform.io.PlatformTestStorage. The reporter declares its
+      # dependencies compileOnly, so whatever the consumer resolves is what runs --
+      # compiling against the floor is how we find out we used something newer.
+      - run: ./gradlew :qualflare-espresso:assembleRelease -Pqualflare.monitorVersion=1.4.0 --stacktrace

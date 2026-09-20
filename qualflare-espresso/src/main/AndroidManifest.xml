@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No permissions, no components: the reporter writes through the test runner's
+     own storage, so it needs nothing of its own in the consumer's manifest. -->
+<manifest />
