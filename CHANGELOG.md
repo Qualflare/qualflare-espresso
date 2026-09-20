@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format follows
   `NewApi` as a lint error, consumer ProGuard rules keeping the string-named listener, and a
   `fixture-app` module that exists only to be instrumented.
 - A device spike (`.github/workflows/android-spike.yml`, dispatch + weekly) measuring the three
-  unknowns that decide the reporter's shape: whether `PlatformTestStorage` output reaches the host
-  with no `adb pull`, whether the `listener` instrumentation argument invokes us, and where
-  `testFailure` falls relative to `@After` teardown.
+  unknowns that decide the reporter's shape. Results in `docs/SPIKE-2026-09-20.md`: the no-adb
+  delivery works on API 29+ but **not on API 24-28**, where AGP passes no `additionalTestOutputDir`;
+  the `listener` instrumentation argument does invoke us; and `testFailure` arrives *after* `@After`
+  teardown, so screenshot-on-failure must be a `TestWatcher` rule rather than a listener hook.

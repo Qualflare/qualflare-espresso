@@ -45,10 +45,15 @@ where shipping our own `AndroidJUnitRunner` subclass would not.
 | | |
 |---|---|
 | Skeleton, lint gate, consumer ProGuard rules | done |
-| Device spike (storage → host, listener registration, failure/teardown ordering) | in progress |
+| Device spike (storage → host, listener registration, failure/teardown ordering) | done — [findings](docs/SPIKE-2026-09-20.md) |
 | The reporter itself | not started |
 
 Requires **minSdk 24** and `androidx.test:monitor` 1.4.0 or newer.
+
+**One measured caveat on the no-adb story:** Gradle only passes `additionalTestOutputDir` from
+**API 29**. On API 24–28 the report lands in the app's files directory and the reporter prints the
+`adb pull` command to run; from API 29 it arrives on the host by itself. Measured on real emulators
+across API 24, 29 and 34 — see the findings.
 
 ## Development
 
