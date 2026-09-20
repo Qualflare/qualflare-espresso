@@ -46,17 +46,12 @@ jobs:
       - run: ./gradlew :fixture-app:assembleDebugAndroidTest --stacktrace
 
       - name: No API-26+ types in the library's sources
-        run: |
-          # Belt and braces next to lint: lint checks call sites, this catches an
-          # import that a future contributor adds behind a `if (SDK_INT >= …)` guard
-          # and then forgets to remove.
-          banned='java\.nio\.file|java\.time|java\.util\.Base64|java\.util\.stream\.Collectors\.joining|String\.join|List\.of|Map\.of|Set\.of|Objects\.requireNonNullElse'
-          if hits=$(grep -rnE "$banned" qualflare-espresso/src/main --include='*.java'); then
-            echo "::error::these are API 26+ (or 30+) and must not appear in the library:"
-            echo "$hits"
-            exit 1
-          fi
-          echo "no banned APIs in qualflare-espresso/src/main"
+        # Second gate next to lint's NewApi: lint checks call sites and can be
+        # suppressed, this refuses the types outright. It strips comments first --
+        # the inline grep it replaces flagged a javadoc line that exists to warn
+        # readers OFF java.util.Base64, and a guard that fires on its own
+        # documentation teaches people to ignore it.
+        run: python3 tools/check-banned-apis.py
 
       - name: AAR shape
         run: |
