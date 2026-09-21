@@ -11,40 +11,20 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /** Which route an attachment takes, and what happens at each limit. */
 @RunWith(RobolectricTestRunner.class)
 public class AttachmentsTest {
 
-    /** Captures what was written so a test can assert the image really landed in the sink. */
-    private static final class RecordingSink extends ReportSink {
-        final Map<String, ByteArrayOutputStream> written = new LinkedHashMap<>();
-
-        @Override
-        OutputStream open(String fileName) {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            written.put(fileName, out);
-            return out;
-        }
-
-        @Override
-        String describe() {
-            return null;
-        }
-    }
-
-    private RecordingSink sink;
+    private FakeSink sink;
 
     @Before
     public void reset() {
-        sink = new RecordingSink();
+        sink = new FakeSink();
         Attachments.resetBudgets();
     }
 

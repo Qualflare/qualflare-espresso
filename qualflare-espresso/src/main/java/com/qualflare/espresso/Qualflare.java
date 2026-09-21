@@ -68,6 +68,14 @@ public final class Qualflare {
         currentKey = null;
     }
 
+    /**
+     * Whether there is a case to attach to. Lets {@link QualflareRule} skip a full-screen capture
+     * when reporting is off, instead of spending it and then dropping the result with a warning.
+     */
+    static boolean hasCase() {
+        return accumulator != null && currentKey != null;
+    }
+
     // ---------------------------------------------------------------- the public API
 
     /** A name/value pair shown on the case, e.g. {@code label("team", "identity")}. */
