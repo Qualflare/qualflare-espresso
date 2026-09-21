@@ -1,5 +1,9 @@
 package com.qualflare.espresso;
 
+import android.graphics.Bitmap;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -41,6 +45,8 @@ public final class Qualflare {
 
     private static volatile Accumulator accumulator;
     private static volatile String currentKey;
+    /** The sink attachments are written through: the same one the report uses. */
+    private static volatile ReportSink sink;
 
     /** One warning per process, not one per stray call: a flood teaches nothing. */
     private static final AtomicBoolean warned = new AtomicBoolean(false);
@@ -52,6 +58,10 @@ public final class Qualflare {
     static void begin(Accumulator acc, String key) {
         accumulator = acc;
         currentKey = key;
+    }
+
+    static void sink(ReportSink reportSink) {
+        sink = reportSink;
     }
 
     static void end() {
@@ -188,6 +198,59 @@ public final class Qualflare {
             }
             throw new RuntimeException(t);
         }
+    }
+
+    /**
+     * Attaches bytes to the running test.
+     *
+     * <p>Images are written beside the report; anything else is inlined against a per-run budget.
+     * Silently does nothing when there is no case or no sink — an attachment is never worth failing
+     * a test over.
+     */
+    public static void attachment(String name, byte[] content, String mimeType) {
+        record(Attachments.of(sinkOrNull(), name, content, mimeType));
+    }
+
+    /** As above, from a file on the device. {@code File}, not {@code Path}: Path is API 26+. */
+    public static void attachment(String name, File file, String mimeType) {
+        record(Attachments.of(sinkOrNull(), name, file, mimeType));
+    }
+
+    /**
+     * A screenshot from a bitmap the caller already has, e.g. from Espresso's
+     * {@code captureToBitmap()} or {@code DeviceCapture.takeScreenshot()}.
+     *
+     * <p>The bitmap is never recycled here: it belongs to the caller, and recycling someone else's
+     * bitmap turns a reporting call into a crash on the next draw.
+     */
+    public static void screenshot(String name, Bitmap bitmap) {
+        if (bitmap == null) {
+            return;
+        }
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+            attachment(name == null ? "screenshot" : name, out.toByteArray(), "image/png");
+        } catch (Throwable t) {
+            // A recycled bitmap, or an OOM on a very large screen. Never fatal.
+        }
+    }
+
+    private static ReportSink sinkOrNull() {
+        return sink;
+    }
+
+    private static void record(Attachments.Attachment a) {
+        if (a == null) {
+            return;
+        }
+        Accumulator acc = accumulator;
+        String key = currentKey;
+        if (acc == null || key == null) {
+            warnOnce();
+            return;
+        }
+        acc.attachment(key, a);
     }
 
     // ---------------------------------------------------------------- internals

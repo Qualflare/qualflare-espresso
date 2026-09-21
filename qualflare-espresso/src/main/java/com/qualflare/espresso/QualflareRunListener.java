@@ -66,6 +66,8 @@ public final class QualflareRunListener extends RunListener {
         }
         warnAboutAnUnrecognisedEnabledValue();
         sink = ReportSink.resolve(targetContext());
+        // Attachments must travel the SAME route as the report, or every localImagePath dangles.
+        Qualflare.sink(sink);
         if (sink == null) {
             System.err.println(TAG + " no way to write a report on this device: neither"
                     + " androidx.test storage nor an app context was available. Nothing will be"
