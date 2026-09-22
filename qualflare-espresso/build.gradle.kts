@@ -84,6 +84,14 @@ android {
                 // forgets to regenerate it fails rather than shipping a stale version -- the
                 // failure mode that put 0.0.0-dev in a real junit5 release.
                 it.systemProperty("qualflare.expectedVersion", project.version.toString())
+
+                // SampleReportTest writes build/sample-report, which tools/verify.py then
+                // checks in CI. Declaring it as an OUTPUT of the test task is what makes that
+                // reliable: without this the directory is an undeclared side effect, so a task
+                // restored from the build cache never produces it and the verify step fails on
+                // a clean runner with "nothing reached the host" -- which is exactly what
+                // happened. Declared, the cache restores it along with the test results.
+                it.outputs.dir(layout.buildDirectory.dir("sample-report"))
             }
         }
     }
