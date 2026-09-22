@@ -1,0 +1,111 @@
+# The device gate. Everything the reporter claims about a real Android run is checked here,
+# by tools/verify.py, against the report that actually reached the host.
+#
+# Dispatch plus a weekly cron rather than per-PR: a leg is 15-25 minutes and six of them would
+# make every pull request wait on emulator flake. What runs on every PR instead is the same
+# verifier against a report the renderer produced on the JVM (see ci.yml), so a change to the
+# report's shape fails immediately; what only a device can answer waits for this workflow.
+#
+# The matrix is two things crossed:
+#   * API 24, 29, 34 -- 24 is the floor and the one level where Gradle passes NO
+#     additionalTestOutputDir, so the report has to be pulled off the device by hand. 29 is the
+#     first level where it does. 34 is a current device.
+#   * plain and orchestrator -- Android Test Orchestrator runs every test in its own process,
+#     which should produce one report file per test rather than one per run. The verifier merges
+#     them; that merge is the assertion.
+name: Emulator
+
+on:
+  workflow_dispatch:
+    inputs:
+      api-levels:
+        description: 'JSON array of API levels, e.g. [24,29,34]'
+        default: '[24,29,34]'
+  schedule:
+    # Mondays 04:17 UTC. Off the hour on purpose: the top of the hour is when every cron on
+    # GitHub fires at once and queue times balloon.
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: Build the API matrix
+    runs-on: ubuntu-latest
+    outputs:
+      levels: ${{ steps.pick.outputs.levels }}
+    steps:
+      - id: pick
+        run: echo "levels=${{ github.event.inputs.api-levels || '[24,29,34]' }}" >> "$GITHUB_OUTPUT"
+
+  device:
+    name: API ${{ matrix.api }} ${{ matrix.mode }}
+    needs: matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api: ${{ fromJSON(needs.matrix.outputs.levels) }}
+        mode: [plain, orchestrator]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Turn on the orchestrator for this leg
+        if: matrix.mode == 'orchestrator'
+        run: |
+          # Appended rather than committed, so the plain leg is the default shape a consumer
+          # gets. clearPackageData is deliberately left OFF: it wipes the app's data directory,
+          # which is exactly where the API-24 fallback writes its report.
+          cat >> fixture-app/build.gradle.kts <<'KTS'
+
+          android {
+              defaultConfig {
+                  testInstrumentationRunnerArguments["clearPackageData"] = "false"
+              }
+              testOptions {
+                  execution = "ANDROIDX_TEST_ORCHESTRATOR"
+              }
+          }
+
+          dependencies {
+              androidTestUtil("androidx.test:orchestrator:1.6.1")
+          }
+          KTS
+          tail -20 fixture-app/build.gradle.kts
+
+      - name: Run the fixture suite and check the report
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.api == 24 && 'default' || 'google_apis' }}
+          # Animations off: an in-flight animation is the classic source of a screenshot that
+          # catches the app mid-transition, and of Espresso never going idle.
+          disable-animations: true
+          script: bash .github/emulator.sh
+
+      - name: Keep what the run produced
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-api${{ matrix.api }}-${{ matrix.mode }}
+          path: |
+            collected/
+            fixture-app/build/outputs/connected_android_test_additional_output/
+            fixture-app/build/reports/androidTests/
+          if-no-files-found: warn
+          retention-days: 14

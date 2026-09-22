@@ -1,7 +1,7 @@
 # The per-PR gate: everything that does not need a device.
 #
-# The emulator lives in android-spike.yml, on workflow_dispatch plus a weekly cron,
-# because an emulator leg costs 15-25 minutes and would make this gate both slow and
+# The emulator lives in emulator.yml, on workflow_dispatch plus a weekly cron, because
+# an emulator leg costs 15-25 minutes and would make this gate both slow and
 # device-flaky.
 name: CI
 
@@ -40,6 +40,16 @@ jobs:
       # setting an AAR cannot assume.
       - run: ./gradlew :qualflare-espresso:lint --stacktrace
       - run: ./gradlew :qualflare-espresso:testDebugUnitTest --stacktrace
+
+      # tools/verify.py is what decides whether an emulator leg passed, and it only runs
+      # on dispatch. Run it here too, against a report the renderer really produced, so a
+      # rename in the report shape fails on the PR that made it rather than weeks later
+      # on a device. Then prove the verifier can still fail: this repo has already shipped
+      # one CI guard that passed vacuously.
+      - name: The verifier agrees with the renderer
+        run: python3 tools/verify.py qualflare-espresso/build/sample-report
+      - name: The verifier can still fail
+        run: bash tools/verify-selftest.sh qualflare-espresso/build/sample-report
 
       # The androidTest APK must build too: it is what the emulator workflow installs,
       # and a broken fixture should fail here rather than 20 minutes into a device run.
