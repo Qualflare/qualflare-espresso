@@ -91,14 +91,22 @@ public final class QualflareRunListener extends RunListener {
         if (!enabled) {
             return;
         }
+        if (Config.isDryRun()) {
+            // The runner is listing the suite, not running it: every test is about to be reported
+            // as started and finished without executing. Reporting that would produce a complete,
+            // convincing, entirely green run.
+            enabled = false;
+            Notes.say("the runner is listing tests rather than running them, so nothing will be"
+                    + " reported for this pass.");
+            return;
+        }
         warnAboutAnUnrecognisedEnabledValue();
         sink = ReportSink.resolve(targetContext());
         // Attachments must travel the SAME route as the report, or every localImagePath dangles.
         Qualflare.sink(sink);
         if (sink == null) {
-            System.err.println(TAG + " no way to write a report on this device: neither"
-                    + " androidx.test storage nor an app context was available. Nothing will be"
-                    + " reported.");
+            Notes.warn("no way to write a report on this device: neither androidx.test"
+                    + " storage nor an app context was available. Nothing will be reported.");
         }
     }
 
@@ -193,7 +201,7 @@ public final class QualflareRunListener extends RunListener {
             ReportWriter.write(sink, accumulator.cases());
         } catch (IOException e) {
             // A reporting failure must never fail a run that passed.
-            System.err.println(TAG + " could not write the report: " + e);
+            Notes.warn("could not write the report: " + e);
         }
     }
 
@@ -221,7 +229,7 @@ public final class QualflareRunListener extends RunListener {
             // Incremental flushing is an optimisation against losing the run; the final write is
             // the guarantee. Stop trying, say so once, and let testRunFinished have its own go.
             flushBroken = true;
-            System.err.println(TAG + " could not flush the report while the run was going: " + e
+            Notes.warn("could not flush the report while the run was going: " + e
                     + ". The report will still be written when the run finishes.");
         }
     }
@@ -303,7 +311,7 @@ public final class QualflareRunListener extends RunListener {
         }
         if (!v.equalsIgnoreCase("1") && !v.equalsIgnoreCase("true") && !v.equalsIgnoreCase("yes")
                 && !v.equalsIgnoreCase("on")) {
-            System.err.println(TAG + " qualflare.enabled=" + raw + " is not a value I recognise;"
+            Notes.warn("qualflare.enabled=" + raw + " is not a value I recognise;"
                     + " reporting anyway. Use 0, false, no or off to turn it off.");
         }
     }

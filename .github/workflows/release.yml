@@ -1,0 +1,87 @@
+name: Release
+
+# Publishes the AAR to Maven Central through the Central Portal.
+#
+# Central is IMMUTABLE: a published version can never be replaced, only superseded by a higher
+# one. So the whole gate runs before anything is uploaded, and `automaticRelease = false` in
+# build.gradle.kts means the bundle is validated and then waits for a human in the Portal.
+#
+# What differs from the Maven siblings is mechanism, not policy: Gradle's signing plugin reads an
+# in-memory key from project properties rather than a keyring, so there is no gpg agent, no
+# --pinentry-mode loopback, and no settings.xml. The four secrets are the same four.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Publish to Maven Central
+    runs-on: ubuntu-latest
+    environment: maven-central
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify the tag matches the project version
+        # A wrong version on Central is permanent, and the family's equivalent check has already
+        # caught one broken build before it shipped.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PROJECT_VERSION="$(./gradlew -q :qualflare-espresso:printVersion)"
+          if [ "$TAG_VERSION" != "$PROJECT_VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME (version $TAG_VERSION) does not match project version $PROJECT_VERSION"
+            exit 1
+          fi
+          case "$PROJECT_VERSION" in
+            *-SNAPSHOT) echo "::error::refusing to release a SNAPSHOT version"; exit 1 ;;
+          esac
+          echo "releasing $PROJECT_VERSION"
+
+      - name: Full gate at the exact bytes about to be published
+        run: |
+          ./gradlew :qualflare-espresso:assembleRelease :qualflare-espresso:lint \
+            :qualflare-espresso:testDebugUnitTest :fixture-app:assembleDebugAndroidTest --stacktrace
+          python3 tools/check-banned-apis.py
+          python3 tools/verify.py qualflare-espresso/build/sample-report
+          bash tools/verify-selftest.sh qualflare-espresso/build/sample-report
+
+      - name: The version in the artifact is the version being released
+        # The report carries Version.VALUE, generated at build time. If that generation ever
+        # breaks, every report from this release claims the wrong version -- which the JUnit 5
+        # sibling actually shipped once, as 0.0.0-dev.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          aar=qualflare-espresso/build/outputs/aar/qualflare-espresso-release.aar
+          unzip -p "$aar" classes.jar > /tmp/classes.jar
+          if ! unzip -p /tmp/classes.jar com/qualflare/espresso/Version.class | grep -qF "$TAG_VERSION"; then
+            echo "::error::Version.class in the AAR does not carry $TAG_VERSION"
+            exit 1
+          fi
+          unzip -l "$aar" | grep -q proguard.txt || { echo "::error::no consumer rules in the AAR"; exit 1; }
+          echo "the AAR carries $TAG_VERSION and its consumer rules"
+
+      - name: Publish
+        # Uploads, validates, and stops. The deployment sits in the Portal until released.
+        run: ./gradlew :qualflare-espresso:publishToMavenCentral --no-configuration-cache --stacktrace
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: What to do next
+        run: |
+          echo "Bundle uploaded and validated. It is NOT public yet."
+          echo "Go to https://central.sonatype.com/publishing/deployments and publish it,"
+          echo "then verify at the source rather than at a green checkmark:"
+          echo "  https://repo1.maven.org/maven2/com/qualflare/qualflare-espresso/"
+          echo "Then work through the 'After the release' section of docs/RELEASING.md."

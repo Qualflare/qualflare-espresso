@@ -25,6 +25,17 @@ if [ "$status" -eq 0 ]; then
     exit 1
 fi
 
+echo "=== what the reporter itself said"
+# Its stdout does not reliably reach Gradle's console -- under the orchestrator each test is a
+# separate process whose output Gradle never relays -- so the reporter logs to logcat too. This
+# is the only place a device run explains which delivery route it chose.
+adb logcat -d -s QualflareEspresso > reporter-logcat.txt 2>/dev/null || true
+if [ -s reporter-logcat.txt ]; then
+    cat reporter-logcat.txt
+else
+    echo "(nothing under the QualflareEspresso tag: the listener never ran)"
+fi
+
 echo "=== did anything reach the host with no adb command?"
 out=fixture-app/build/outputs/connected_android_test_additional_output
 mkdir -p collected
@@ -37,7 +48,17 @@ else
     # workflow runs that command so the leg can still check the report.
     echo "no additional output on API $sdk -- falling back to the app's files directory"
     adb pull /sdcard/Android/data/com.qualflare.espresso.fixture/files/qualflare-results collected/
-    echo "adb pull exit=$?"
+    pulled=$?
+    echo "adb pull exit=$pulled"
+    if [ "$pulled" -ne 0 ]; then
+        # The pull path is a guess about where the reporter wrote; the logcat above is the fact.
+        # List the candidates so a failing leg says where the report IS, not only where it is not.
+        echo "--- the app's files directory:"
+        adb shell 'ls -lR /sdcard/Android/data/com.qualflare.espresso.fixture/files 2>&1' || true
+        echo "--- androidx.test storage's own output directory:"
+        adb shell 'ls -lR /sdcard/googletest 2>&1' || true
+        adb shell 'ls -lR /storage/emulated/0/googletest 2>&1' || true
+    fi
 fi
 
 echo "=== what was collected"

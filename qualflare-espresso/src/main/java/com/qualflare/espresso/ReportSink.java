@@ -50,20 +50,42 @@ abstract class ReportSink {
     static ReportSink resolve(Context context) {
         Object storage = platformStorage();
         if (storage != null && storageIsCollected()) {
-            return new StorageSink(storage);
+            Notes.say("writing through androidx.test storage; Gradle collects it into"
+                    + " build/outputs/connected_android_test_additional_output with no adb"
+                    + " command.");
+            return new StorageSink(storage, true);
         }
-        if (context != null) {
-            File dir = new File(context.getExternalFilesDir(null), Config.outputDir());
-            if (dir.exists() || dir.mkdirs()) {
-                return new FileSink(dir, context.getPackageName());
+        // Every branch below says which route it took and why. An API 24 leg once produced no
+        // report at all and left nothing to explain it, because the decision made here was
+        // invisible: the sink knows exactly what went wrong and used to keep it to itself.
+        if (context == null) {
+            Notes.warn("no app context: InstrumentationRegistry gave no target context, so the"
+                    + " app's files directory is not an option.");
+        } else {
+            File parent = context.getExternalFilesDir(null);
+            if (parent == null) {
+                Notes.warn("getExternalFilesDir(null) returned null -- external storage is"
+                        + " unavailable on this device, so there is nowhere to fall back to.");
+            } else {
+                File dir = new File(parent, Config.outputDir());
+                if (dir.exists() || dir.mkdirs()) {
+                    Notes.say("no additionalTestOutputDir on this device (expected below API 29),"
+                            + " so the report goes to " + dir.getAbsolutePath());
+                    return new FileSink(dir, context.getPackageName());
+                }
+                Notes.warn("could not create " + dir.getAbsolutePath());
             }
         }
-        // Storage exists but Gradle will not collect it, and there is no context to fall back on.
-        // Writing to storage anyway beats writing nowhere: the files are on the device and the
-        // note says how to fetch them.
+        // Storage exists but nothing will collect it, and the file route was not available.
+        // Writing to storage anyway beats writing nowhere: the files are on the device, and now
+        // the note says so rather than leaving a silent dead end.
         if (storage != null) {
-            return new StorageSink(storage);
+            Notes.warn("falling back to androidx.test storage, which nothing on this device will"
+                    + " collect. The files are on the device but no adb pull is printed for them,"
+                    + " because their location is the storage implementation's to choose.");
+            return new StorageSink(storage, false);
         }
+        Notes.warn("no route to write a report: no test storage and no app context.");
         return null;
     }
 
@@ -96,9 +118,12 @@ abstract class ReportSink {
     /** Writes through androidx.test's storage, which Gradle pulls to the host. */
     private static final class StorageSink extends ReportSink {
         private final Object storage;
+        /** Whether Gradle will pull what this writes. When it will not, describe() says so. */
+        private final boolean collected;
 
-        StorageSink(Object storage) {
+        StorageSink(Object storage, boolean collected) {
             this.storage = storage;
+            this.collected = collected;
         }
 
         @Override
@@ -114,8 +139,13 @@ abstract class ReportSink {
 
         @Override
         String describe() {
-            // Silent on purpose: this is the path where nothing is asked of the user.
-            return null;
+            if (collected) {
+                // Silent on purpose: this is the path where nothing is asked of the user.
+                return null;
+            }
+            return "the report went to androidx.test test storage, which nothing is collecting on"
+                    + " this device. Run with Gradle (which sets additionalTestOutputDir from API"
+                    + " 29), or check `adb logcat -s " + Notes.TAG + "` for the path chosen.";
         }
     }
 

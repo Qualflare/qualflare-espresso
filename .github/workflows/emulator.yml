@@ -105,6 +105,7 @@ jobs:
           name: report-api${{ matrix.api }}-${{ matrix.mode }}
           path: |
             collected/
+            reporter-logcat.txt
             fixture-app/build/outputs/connected_android_test_additional_output/
             fixture-app/build/reports/androidTests/
           if-no-files-found: warn

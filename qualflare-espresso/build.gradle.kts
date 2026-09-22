@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.maven.publish)
 }
 
 // The version the reporter puts in every report.
@@ -87,14 +88,6 @@ android {
         }
     }
 
-    publishing {
-        singleVariant("release") {
-            // AGP's own replacements for maven-source-plugin / maven-javadoc-plugin,
-            // which do not carry over from the Maven siblings.
-            withSourcesJar()
-            withJavadocJar()
-        }
-    }
 }
 
 // CI compiles against the androidx.test floor as well as the current version:
@@ -140,4 +133,65 @@ androidComponents {
     onVariants { variant ->
         variant.sources.java?.addGeneratedSourceDirectory(generateVersion, GenerateVersion::outputDir)
     }
+}
+
+// Publishing to Maven Central through the Central Portal.
+//
+// None of the Maven siblings' publishing carries over: no central-publishing-maven-plugin, no
+// maven-gpg-plugin (Gradle's signing never touches a TTY, so there is no --pinentry-mode
+// loopback to arrange), no maven-source-plugin or maven-javadoc-plugin. What does carry over is
+// everything that is a decision rather than a mechanism -- the pom block, publishing under a
+// human gate, and the refusal to release a SNAPSHOT.
+mavenPublishing {
+    // Uploaded, validated, and then left sitting in the portal until a human presses release.
+    // The Maven siblings make the same call for the same reason: nothing about a deployment is
+    // reversible once it is on Central.
+    publishToMavenCentral(automaticRelease = false)
+    // Central rejects an unsigned artifact outright, and the failure surfaces at the end of a
+    // release rather than the start.
+    signAllPublications()
+
+    // The platform is left to the plugin, which for com.android.library publishes the `release`
+    // variant with a sources jar and a javadoc jar. Those three are asserted by the release
+    // workflow rather than taken on trust, because AGP has no equivalent of
+    // maven-source-plugin to fall back on if the default ever changes.
+
+    coordinates("com.qualflare", "qualflare-espresso", project.version.toString())
+
+    pom {
+        name.set("qualflare-espresso")
+        description.set(
+            "Native Espresso reporter for Qualflare -- runs inside the instrumented app and " +
+                "captures status, retry history, steps, screenshots and author-facing metadata " +
+                "straight from the device."
+        )
+        url.set("https://qualflare.com/espresso-test-reporting/")
+        licenses {
+            license {
+                name.set("Apache-2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                name.set("Qualflare")
+                email.set("ibrahim@qualflare.com")
+                organization.set("Qualflare")
+                organizationUrl.set("https://qualflare.com")
+            }
+        }
+        scm {
+            url.set("https://github.com/Qualflare/qualflare-espresso")
+            connection.set("scm:git:https://github.com/Qualflare/qualflare-espresso.git")
+            developerConnection.set("scm:git:git@github.com:Qualflare/qualflare-espresso.git")
+        }
+    }
+}
+
+// The release workflow asserts that the git tag matches this, before anything is uploaded --
+// a wrong version on Maven Central is permanent. A task rather than `gradle properties`, which
+// prints a hundred lines and would hide the one that matters.
+tasks.register("printVersion") {
+    val resolved = project.version.toString()
+    doLast { println(resolved) }
 }

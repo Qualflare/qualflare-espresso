@@ -92,12 +92,12 @@ final class ReportWriter {
     /** The final write: the same bytes as a flush, plus everything a build log should show. */
     static String write(ReportSink sink, Collection<CaseRecord> cases) throws IOException {
         String name = flush(sink, cases);
-        System.out.println("[qualflare-espresso] wrote " + cases.size() + " case(s) to " + name);
+        Notes.say("wrote " + cases.size() + " case(s) to " + name);
         String note = sink.describe();
         if (note != null) {
             // The file route asks something of the user, so it has to say so where a build log
             // shows it.
-            System.out.println("[qualflare-espresso] " + note);
+            Notes.say(note);
         }
 
         // Anomalies go to stderr, where a build log will actually show them. Replay
@@ -106,7 +106,7 @@ final class ReportWriter {
         // test emitted.
         for (CaseRecord c : cases) {
             for (String w : c.meta.warnings) {
-                System.err.println("[qualflare-espresso] " + c.displayName + ": " + w);
+                Notes.warn(c.displayName + ": " + w);
             }
         }
         return name;

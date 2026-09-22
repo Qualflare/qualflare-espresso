@@ -101,6 +101,35 @@ final class Config {
         return isSet(v) ? v : null;
     }
 
+    /**
+     * True when the runner is <b>listing</b> tests rather than running them.
+     *
+     * <p>Android Test Orchestrator asks the runner to enumerate the suite before executing any of
+     * it, and {@code -e log true} does the same for anyone running a dry run by hand. In that pass
+     * AndroidJUnitRunner fires the full testStarted/testFinished sequence for every test WITHOUT
+     * executing a single one, so a listener that believes what it is told writes a report in which
+     * every test passed, carrying no steps, no attachments and no failures.
+     *
+     * <p>That report is not merely useless, it is dangerous: it is a complete, valid-looking green
+     * run, and under the orchestrator it is written FIRST, so whoever merges reports sees the
+     * enumeration rather than the tests. Measured on API 29 and 34 orchestrator legs, where all
+     * twelve cases came back passed with empty metadata.
+     *
+     * <p>Both argument names are androidx.test's own: {@code RunnerArgs.ARGUMENT_LOG_ONLY} and
+     * {@code ARGUMENT_LIST_TESTS_FOR_ORCHESTRATOR}, read out of runner 1.7.0.
+     */
+    static boolean isDryRun() {
+        return isTrue(argument("log")) || isTrue(argument("listTestsForOrchestrator"));
+    }
+
+    private static boolean isTrue(String raw) {
+        if (!isSet(raw)) {
+            return false;
+        }
+        String v = raw.trim().toLowerCase(Locale.ROOT);
+        return v.equals("true") || v.equals("1");
+    }
+
     private static String resolve(String property, String env, String fallback) {
         String v = argument(property);
         if (isSet(v)) {
