@@ -1,0 +1,82 @@
+name: Release preflight
+
+# Checks the publishing credentials WITHOUT publishing anything.
+#
+# It exists because the first release candidate failed at `signMavenPublication` with "Could not
+# read PGP secret key", and the only way to find that out was to cut a tag. Signing is the one
+# step that cannot be rehearsed locally — it needs the secrets — so it gets a rehearsal of its
+# own, on demand, with nothing uploaded.
+#
+# Nothing here prints key material. The shape check reports lengths and whether the armour
+# markers are present; a secret's content never reaches the log.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Can we sign?
+    runs-on: ubuntu-latest
+    environment: maven-central
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: The shape of the signing key
+        env:
+          KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+        run: |
+          # Lengths and markers only. Gradle's in-memory signing wants an ASCII-armoured SECRET
+          # key; the usual causes of "Could not read PGP secret key" are a public-key export, a
+          # value whose newlines arrived as the two characters \n, or a truncated block.
+          echo "key length:            ${#KEY}"
+          echo "key line count:        $(printf '%s' "$KEY" | wc -l)"
+          echo "starts with BEGIN:     $(printf '%s' "$KEY" | head -1 | grep -c 'BEGIN PGP')"
+          echo "says PRIVATE/SECRET:   $(printf '%s' "$KEY" | head -1 | grep -cE 'PRIVATE KEY BLOCK|SECRET KEY')"
+          echo "says PUBLIC (wrong):   $(printf '%s' "$KEY" | head -1 | grep -c 'PUBLIC KEY BLOCK')"
+          echo "has END marker:        $(printf '%s' "$KEY" | grep -c 'END PGP')"
+          echo "has literal backslash-n: $(printf '%s' "$KEY" | grep -c '\\\\n')"
+          echo "first line:            $(printf '%s' "$KEY" | head -1)"
+          echo "passphrase set:        $([ -n "$PASSPHRASE" ] && echo yes || echo NO)"
+          echo "central username set:  $([ -n "$USERNAME" ] && echo yes || echo NO)"
+          echo "central password set:  $([ -n "$PASSWORD" ] && echo yes || echo NO)"
+
+      - name: Can gpg itself read it?
+        env:
+          KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          # A second opinion from a different implementation. If gpg cannot parse it either, the
+          # secret is wrong; if gpg can and Gradle cannot, the key's algorithm is the suspect --
+          # Gradle signs with Bouncy Castle, which is fussier about newer ECC keys than gpg is.
+          printf '%s' "$KEY" > /tmp/key.asc
+          gpg --batch --import-options show-only --import /tmp/key.asc 2>&1 \
+            | sed -n '1,12p' || echo "gpg could not read the key either"
+          rm -f /tmp/key.asc
+
+      - name: Sign, without publishing
+        # The real rehearsal: this is the task that failed the rc. publishToMavenLocal signs
+        # exactly as a release would, and puts the result in the runner's own ~/.m2.
+        run: ./gradlew :qualflare-espresso:publishToMavenLocal --no-configuration-cache --stacktrace
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Were the signatures actually produced?
+        run: |
+          # A green signing task that produced no .asc would be the vacuous kind of pass.
+          dir=~/.m2/repository/com/qualflare/qualflare-espresso
+          find "$dir" -type f | sed "s|$HOME|~|" | sort
+          count=$(find "$dir" -name '*.asc' | wc -l)
+          echo "signature files: $count"
+          [ "$count" -ge 4 ] || { echo "::error::expected .asc signatures for the aar, pom, sources and javadoc"; exit 1; }
+          echo "signing works; the release workflow can be re-run on the tag."
