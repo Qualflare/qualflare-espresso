@@ -62,8 +62,13 @@ jobs:
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           aar=qualflare-espresso/build/outputs/aar/qualflare-espresso-release.aar
           unzip -p "$aar" classes.jar > /tmp/classes.jar
-          if ! unzip -p /tmp/classes.jar com/qualflare/espresso/Version.class | grep -qF "$TAG_VERSION"; then
-            echo "::error::Version.class in the AAR does not carry $TAG_VERSION"
+          # javap, not grep: the constant has to be EXACTLY the tag. A substring match would
+          # let a v0.1.0 tag approve a 0.1.0-rc.1 build, which is the one mistake this step is
+          # supposed to be the backstop for.
+          BUILT=$(javap -classpath /tmp/classes.jar -p -constants com.qualflare.espresso.Version \
+                  | sed -n 's/.*VALUE = "\(.*\)";/\1/p')
+          if [ "$BUILT" != "$TAG_VERSION" ]; then
+            echo "::error::the AAR's Version.VALUE is '$BUILT', not '$TAG_VERSION'"
             exit 1
           fi
           unzip -l "$aar" | grep -q proguard.txt || { echo "::error::no consumer rules in the AAR"; exit 1; }
