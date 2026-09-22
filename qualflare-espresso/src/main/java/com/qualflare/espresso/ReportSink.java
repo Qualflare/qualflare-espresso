@@ -166,13 +166,23 @@ abstract class ReportSink {
 
         @Override
         String describe() {
-            // The exact command, not a description of one. Gradle only passes
-            // additionalTestOutputDir from API 29, so on 24-28 this is how the report travels.
+            // The exact commands, not a description of them -- including the part that is easy
+            // to leave out and fatal to omit. This directory belongs to the app, and
+            // connectedAndroidTest UNINSTALLS the app when it finishes, taking the report with
+            // it. Measured on an API 24 emulator: the reporter wrote ten cases, and by the time
+            // the pull ran, /Android/data was empty and `run-as` reported the package unknown.
+            // Every other directory available here -- getExternalMediaDirs, getExternalCacheDir,
+            // getCacheDir, which is also what androidx.test's own storage falls back to -- is
+            // app-specific and dies the same way.
             return "wrote to " + dir.getAbsolutePath()
                     + " (this device's API level predates Gradle's additional-test-output support)"
+                    + "\n  This directory is deleted when Gradle uninstalls the app at the end of"
+                    + " the run, so keep the app installed for the run you want to collect:"
+                    + "\n  ./gradlew connectedAndroidTest"
+                    + " -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true"
                     + "\n  adb pull " + dir.getAbsolutePath() + " ./qualflare-results"
                     + "\n  qf <project> collect ./qualflare-results"
-                    + "\n  (package " + packageName + ")";
+                    + "\n  adb uninstall " + packageName;
         }
     }
 }

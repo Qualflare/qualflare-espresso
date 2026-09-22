@@ -15,7 +15,17 @@ echo "=== device: API $sdk, $(adb shell getprop ro.product.model | tr -d '\r')"
 adb devices -l
 
 echo "=== run the fixture suite"
-./gradlew :fixture-app:connectedDebugAndroidTest --stacktrace
+# Below API 29 the report is written into the app's own external files directory, and
+# connectedAndroidTest uninstalls the app when it finishes -- which deletes it. Measured: an
+# API 24 leg wrote ten cases and then had nothing to pull, with /Android/data empty and the
+# package unknown to run-as. Keeping the APKs installed is the documented way to collect that
+# run, and is exactly what the reporter now tells a user to do.
+keep=""
+if [ "$sdk" -lt 29 ]; then
+    keep="-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true"
+    echo "API $sdk: keeping the APKs installed so the report survives the run"
+fi
+./gradlew :fixture-app:connectedDebugAndroidTest $keep --stacktrace
 status=$?
 echo "connectedDebugAndroidTest exit=$status"
 if [ "$status" -eq 0 ]; then
