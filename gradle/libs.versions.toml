@@ -13,6 +13,9 @@ extJunit = "1.3.0"
 junit = "4.13.2"
 robolectric = "4.17"
 truth = "1.4.5"
+# Publishing. 0.37.0 targets the Central Portal, which is the only way to publish to
+# Maven Central now that OSSRH is gone.
+mavenPublish = "0.37.0"
 
 [libraries]
 androidx-test-monitor = { module = "androidx.test:monitor", version.ref = "monitor" }
@@ -26,3 +29,4 @@ truth = { module = "com.google.truth:truth", version.ref = "truth" }
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }
 android-application = { id = "com.android.application", version.ref = "agp" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }

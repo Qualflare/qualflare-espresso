@@ -279,9 +279,9 @@ public final class Qualflare {
 
     private static void warnOnce() {
         if (warned.compareAndSet(false, true)) {
-            System.err.println("[qualflare-espresso] a Qualflare.* call was made outside a running"
-                    + " test and was ignored. If this is inside @BeforeClass, a @ClassRule or a"
-                    + " helper thread, there is no case to attach it to.");
+            Notes.warn("a Qualflare.* call was made outside a running test and was ignored."
+                    + " If this is inside @BeforeClass, a @ClassRule or a helper thread, there is"
+                    + " no case to attach it to.");
         }
     }
 
