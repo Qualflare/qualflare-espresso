@@ -6,12 +6,15 @@ import java.util.List;
 /**
  * One test, and every attempt at it.
  *
- * <p>Keyed on the JUnit uniqueId, which is what makes re-run accumulation work: Surefire
- * re-executes a failed test in a new TestPlan but the same JVM, and the uniqueId is the
- * same across those plans. Measured on Surefire 3.5.6 with rerunFailingTestsCount=3 --
- * one test arrived as FAILED, FAILED, SUCCESSFUL across plans 1..3, and was absent from
- * plan 4 because Surefire narrows each re-run to what is still failing. This is unchanged
- * from 3.5.2; only the session scoping around it changed, in 3.5.4.
+ * <p>Keyed on {@code <class>#<method>}, which is what makes retry accumulation work. JUnit 4 has
+ * no uniqueId and no rerunning runner of its own; on Android a retry is a rule -- a
+ * {@code RetryRule}, or {@code FlakyTest} with {@code AndroidJUnitRunner}'s own retry support --
+ * which fires start/failure/finish again under the SAME description. Keyed on the description,
+ * those land on one case as successive attempts; keyed on anything per-attempt they would become
+ * separate cases and a rerun-to-green would read as one failure plus one pass.
+ *
+ * <p>JUnit 4 puts parameters in the method name ({@code signsIn[0]}), so parameterised runs key
+ * apart naturally and a parameterised retry still accumulates on its own row.
  *
  * <p>Not thread-safe on its own; {@link Accumulator} owns the locking.
  */
@@ -26,9 +29,8 @@ final class CaseRecord {
     /**
      * Author metadata from the LAST attempt only.
      *
-     * <p>Same rule the CucumberJS reporter documents: attempts carry their own status,
-     * duration and error, but steps, labels, tags and parameters come from the final
-     * attempt. Replaying an abandoned attempt's step trace alongside the winning one
+     * <p>The same rule the rest of the family follows: attempts carry their own status, duration
+     * and error, but steps, labels, tags and parameters come from the final attempt. Replaying an abandoned attempt's step trace alongside the winning one
      * would show a step tree that never existed in that shape.
      */
     CaseMeta meta = new CaseMeta();
@@ -42,8 +44,8 @@ final class CaseRecord {
     }
 
     /**
-     * The final attempt wins, which is what makes a rerun-to-green read as green.
-     * Surefire's own summary agrees -- it counts that case as a Flake, not a Failure.
+     * The final attempt wins, which is what makes a rerun-to-green read as green -- the case is
+     * flaky, not failed, and the earlier attempts are still in the report to show why.
      */
     String status() {
         return attempts.isEmpty() ? Status.SKIPPED : attempts.get(attempts.size() - 1).status;

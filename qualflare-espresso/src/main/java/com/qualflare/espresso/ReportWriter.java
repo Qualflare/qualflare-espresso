@@ -29,13 +29,13 @@ final class ReportWriter {
     /**
      * Chosen ONCE per JVM, not once per write.
      *
-     * <p>Two requirements pull in opposite directions. Between JVMs the name must be
-     * unique: with {@code forkCount > 1} or {@code reuseForks=false} each fork writes
-     * into the SAME directory and {@code qf collect} merges every file it finds, so a
-     * collision would lose a fork's results. Within a JVM it must be STABLE, because the
-     * report is now written more than once -- on every launcher-session close, and again
-     * from the shutdown hook -- and a fresh name each time would leave a trail of partial
-     * reports for collect to merge into duplicate cases.
+     * <p>Two requirements pull in opposite directions. Between processes the name must be
+     * UNIQUE: under Android Test Orchestrator every test runs in its own process writing into the
+     * same output directory, and {@code qf collect} merges every file it finds, so a collision
+     * would lose a test's results. Within a process it must be STABLE, because the report is
+     * written many times -- once per incremental flush and again when the run finishes -- and a
+     * fresh name each time would leave a trail of partial reports for collect to merge into
+     * duplicate cases.
      *
      * <p>Stable plus unique means: compute it once, from the pid and a random suffix.
      */
@@ -68,12 +68,30 @@ final class ReportWriter {
         }
     }
 
-    static String write(ReportSink sink, Collection<CaseRecord> cases) throws IOException {
+    /**
+     * Writes the report and says nothing.
+     *
+     * <p>This is the incremental flush, which runs many times in a run, so it neither logs nor
+     * reports anomalies -- doing either here would print the same warning once per test.
+     *
+     * <p>Rewriting the whole report under the SAME name is safe on both delivery routes, and that
+     * was measured rather than assumed: {@code FileTestStorage.openOutputFile(name)} delegates to
+     * {@code new FileOutputStream(file, false)}, and the orchestrator's content-provider storage
+     * opens the same uri with mode {@code "wt"} -- write and truncate. Neither appends, so the
+     * last flush to win is the whole report rather than several concatenated ones.
+     */
+    static String flush(ReportSink sink, Collection<CaseRecord> cases) throws IOException {
         String name = fileName();
         try (OutputStream out = sink.open(name);
                 Writer writer = new OutputStreamWriter(out, "UTF-8")) {
             writer.write(render(cases));
         }
+        return name;
+    }
+
+    /** The final write: the same bytes as a flush, plus everything a build log should show. */
+    static String write(ReportSink sink, Collection<CaseRecord> cases) throws IOException {
+        String name = flush(sink, cases);
         System.out.println("[qualflare-espresso] wrote " + cases.size() + " case(s) to " + name);
         String note = sink.describe();
         if (note != null) {

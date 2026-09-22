@@ -43,11 +43,38 @@ public final class QualflareRunListener extends RunListener {
 
     private static final String TAG = "[qualflare-espresso]";
 
+    /**
+     * How often the report is rewritten while the run is still going.
+     *
+     * <p>A device run is the one place where losing the report is likely rather than exotic: the
+     * emulator is killed, the app is force-stopped, the test process is low-memory-killed, or a
+     * native crash takes the process down between tests. Writing only at {@code testRunFinished}
+     * means any of those costs the whole run's results, and a flaky suite is exactly the suite
+     * that dies that way.
+     *
+     * <p>Three seconds rather than every test, because the flush rewrites the WHOLE report: at one
+     * write per test a thousand-test suite would rewrite a growing document a thousand times. At
+     * this interval the loss window is a few seconds of tests instead of the entire run.
+     */
+    private static final long FLUSH_INTERVAL_MS = 3_000L;
+
     private final Accumulator accumulator = new Accumulator();
 
-    /** Resolved once at run start; null means "report nothing", decided there. */
-    private ReportSink sink;
+    /**
+     * Resolved once at run start; null means "report nothing", decided there. Package-private
+     * because off a device {@link ReportSink#resolve} finds nothing, so tests install their own.
+     */
+    ReportSink sink;
     private boolean enabled = true;
+
+    /** Visible for tests, which drive the throttle rather than sleeping through it. */
+    long flushIntervalMs = FLUSH_INTERVAL_MS;
+
+    /** When the last incremental flush happened; 0 means none yet, so the first one is due. */
+    private long lastFlushAt;
+
+    /** Set after a flush fails, so a broken sink cannot print once per test for the rest of a run. */
+    private boolean flushBroken;
 
     /** The failure seen for the test in flight, or null. First one wins. */
     private String pendingStatus;
@@ -136,6 +163,7 @@ public final class QualflareRunListener extends RunListener {
         // the notification, so it cannot be reported.
         accumulator.skipped(keyOf(description), suiteOf(description), description.getClassName(),
                 methodOf(description), methodOf(description), "@Ignore");
+        flushIfDue();
     }
 
     @Override
@@ -153,6 +181,7 @@ public final class QualflareRunListener extends RunListener {
                 pendingMessage == null ? "" : pendingMessage,
                 pendingTrace == null ? "" : pendingTrace);
         clearPending();
+        flushIfDue();
     }
 
     @Override
@@ -165,6 +194,35 @@ public final class QualflareRunListener extends RunListener {
         } catch (IOException e) {
             // A reporting failure must never fail a run that passed.
             System.err.println(TAG + " could not write the report: " + e);
+        }
+    }
+
+    /**
+     * Rewrites the report if enough time has passed, so that a run which never reaches
+     * {@code testRunFinished} still leaves every case finished so far.
+     *
+     * <p>The file is replaced whole under one name, never appended to, so what is on disk is
+     * always a complete document rather than a prefix of one. The residual window is the write
+     * itself: a process killed mid-write leaves a truncated file, and nothing an app process can
+     * do about that is portable across both delivery routes -- test storage has no rename.
+     */
+    private void flushIfDue() {
+        if (sink == null || flushBroken || accumulator.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (lastFlushAt != 0L && now - lastFlushAt < flushIntervalMs) {
+            return;
+        }
+        lastFlushAt = now;
+        try {
+            ReportWriter.flush(sink, accumulator.cases());
+        } catch (IOException | RuntimeException e) {
+            // Incremental flushing is an optimisation against losing the run; the final write is
+            // the guarantee. Stop trying, say so once, and let testRunFinished have its own go.
+            flushBroken = true;
+            System.err.println(TAG + " could not flush the report while the run was going: " + e
+                    + ". The report will still be written when the run finishes.");
         }
     }
 

@@ -7,19 +7,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Run state that outlives a single TestPlan.
+ * Everything the run has produced so far, keyed by test.
  *
- * <p>This class exists because of one measured fact: {@code testPlanExecutionFinished}
- * fires ONCE PER PLAN, and Surefire runs a fresh plan for every rerun -- four plans for
- * rerunFailingTestsCount=3. Writing the report from that callback would emit four partial
- * files, or overwrite until only the last rerun survived, silently discarding the retry
- * history that is the main reason to use a native reporter at all. So nothing is written
- * here; {@link QualflareListener} writes once, at JVM shutdown.
+ * <p>It holds the whole run rather than one test at a time because a case can be visited more than
+ * once: a {@code RetryRule} or a rerunning runner fires start/failure/finish again for the same
+ * test, and those belong in ONE case as successive attempts. Recorded as separate cases they would
+ * read as a suite that grew, and the retry history -- the main reason to use a native reporter
+ * instead of the XML -- would be gone.
  *
- * <p>Synchronised rather than merely concurrent-collection based: under
- * {@code junit.jupiter.execution.parallel.enabled} the listener is called from
- * ForkJoinPool workers (observed: ForkJoinPool-1-worker-2), and appending an attempt is a
- * read-modify-write on a case that must not interleave.
+ * <p>Nothing is written from here. {@link QualflareRunListener} owns when the report is written:
+ * throttled while the run goes, and once more when it finishes.
+ *
+ * <p>Synchronised rather than merely built from concurrent collections: {@link Qualflare} writes
+ * into the live {@link CaseMeta} from wherever the test calls it, and on Android that is routinely
+ * the main looper rather than the instrumentation thread (measured, docs/SPIKE-2026-09-20.md).
+ * Appending an attempt is a read-modify-write that must not interleave with those.
  */
 final class Accumulator {
 
