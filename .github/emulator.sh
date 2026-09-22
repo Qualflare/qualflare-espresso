@@ -10,6 +10,19 @@
 # command.
 set -uo pipefail
 
+# An optional argument switches the fixture from the reporter in this repo to a PUBLISHED one
+# resolved from Maven Central, and makes the verifier insist the report carries exactly that
+# version. That is the whole point of the consumer check: proving the version generated at build
+# time survived publication.
+published="${1:-}"
+use_published=""
+expect_version=""
+if [ -n "$published" ]; then
+    use_published="-Pqualflare.usePublished=$published"
+    expect_version="$published"
+    echo "=== testing the PUBLISHED artifact com.qualflare:qualflare-espresso:$published"
+fi
+
 sdk=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
 echo "=== device: API $sdk, $(adb shell getprop ro.product.model | tr -d '\r')"
 adb devices -l
@@ -25,7 +38,7 @@ if [ "$sdk" -lt 29 ]; then
     keep="-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true"
     echo "API $sdk: keeping the APKs installed so the report survives the run"
 fi
-./gradlew :fixture-app:connectedDebugAndroidTest $keep --stacktrace
+./gradlew :fixture-app:connectedDebugAndroidTest $keep $use_published --stacktrace
 status=$?
 echo "connectedDebugAndroidTest exit=$status"
 if [ "$status" -eq 0 ]; then
@@ -97,4 +110,4 @@ echo "=== how many report files (one per run, or one per test under the orchestr
 find collected -name 'qualflare-espresso-*.json' | wc -l
 
 echo "=== verify"
-python3 tools/verify.py collected
+python3 tools/verify.py collected $expect_version

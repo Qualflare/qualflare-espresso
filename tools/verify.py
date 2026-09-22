@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Checks the report an emulator run actually produced against what it must contain.
 
-    python3 tools/verify.py <directory>
+    python3 tools/verify.py <directory> [expected-version]
+
+Given an expected version, the report's metadata.version must equal it exactly. That is the
+check for a run against a PUBLISHED artifact: it is the only way to prove the version generated
+into the AAR survived publication, and the JUnit 5 sibling once shipped a release whose reports
+all claimed 0.0.0-dev.
 
 The directory is wherever the reports landed: on API 29+ that is
 `fixture-app/build/outputs/connected_android_test_additional_output/...`, pulled by AGP with no adb
@@ -62,7 +67,7 @@ def load(paths):
     return tops, cases
 
 
-def check_top_level(tops):
+def check_top_level(tops, expected_version=None):
     for path, report in tops:
         where = os.path.basename(path)
         expect(report.get("framework") == "espresso", where, "framework", report.get("framework"))
@@ -73,6 +78,10 @@ def check_top_level(tops):
         version = (report.get("metadata") or {}).get("version") or ""
         expect(version and not version.startswith("0.0.0"), where,
                "metadata.version should be the built version, not the unset default", version)
+        if expected_version is not None:
+            expect(version == expected_version, where,
+                   "metadata.version should be exactly the released version %r" % expected_version,
+                   version)
         for suite in report.get("suites", []):
             expect(suite.get("category") == "e2e", where,
                    "suite category for an instrumented run", suite.get("category"))
@@ -217,10 +226,11 @@ def checks(cases):
 
 
 def main(argv):
-    if len(argv) != 2:
+    if len(argv) not in (2, 3):
         print(__doc__)
         return 2
     root = argv[1]
+    expected_version = argv[2] if len(argv) == 3 else None
     paths = find_reports(root)
     print("reports under %s:" % root)
     for p in paths:
@@ -232,7 +242,7 @@ def main(argv):
 
     try:
         tops, cases = load(paths)
-        check_top_level(tops)
+        check_top_level(tops, expected_version)
     except Failure as exc:
         print("FAIL: %s" % exc)
         return 1
