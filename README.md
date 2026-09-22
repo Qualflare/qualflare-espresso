@@ -102,8 +102,11 @@ minSdk **24**, `androidx.test:monitor` **1.4.0** or newer (the first release car
 `PlatformTestStorage`). CI compiles against that floor as well as the current version.
 
 **One measured caveat on the no-adb story:** Gradle passes `additionalTestOutputDir` only from
-**API 29**. Below that the reporter writes into the app's files directory and prints the exact
-`adb pull` to run — see [LIMITATIONS.md](docs/LIMITATIONS.md).
+**API 29**. Below that the reporter writes into the app's own files directory — which
+`connectedAndroidTest` deletes when it uninstalls the app — so collecting an API 24-28 run takes
+one Gradle flag and one `adb pull`. The reporter prints both, filled in for your app;
+[LIMITATIONS.md](docs/LIMITATIONS.md#api-2428-the-report-needs-one-flag-and-one-adb-pull) has the
+measurement behind it.
 
 ## Development
 
