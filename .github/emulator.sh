@@ -47,17 +47,36 @@ else
     # wrote to the app's external files directory and printed the pull command itself. The
     # workflow runs that command so the leg can still check the report.
     echo "no additional output on API $sdk -- falling back to the app's files directory"
-    adb pull /sdcard/Android/data/com.qualflare.espresso.fixture/files/qualflare-results collected/
-    pulled=$?
-    echo "adb pull exit=$pulled"
+    # The path the REPORTER named in logcat, not a guess about it. The two spellings are
+    # usually the same mount, but on API 24 the shell user and the app do not necessarily see
+    # external storage the same way, which is the thing this leg is here to settle.
+    app_dir=$(sed -n 's/.*so the report goes to \(.*\)$/\1/p' reporter-logcat.txt | tail -1 | tr -d '\r')
+    echo "the reporter says it wrote to: ${app_dir:-(nothing in logcat)}"
+    pulled=1
+    for candidate in \
+        "$app_dir" \
+        /storage/emulated/0/Android/data/com.qualflare.espresso.fixture/files/qualflare-results \
+        /sdcard/Android/data/com.qualflare.espresso.fixture/files/qualflare-results \
+        /storage/emulated/legacy/Android/data/com.qualflare.espresso.fixture/files/qualflare-results
+    do
+        [ -n "$candidate" ] || continue
+        echo "--- trying $candidate"
+        if adb pull "$candidate" collected/ 2>&1; then
+            pulled=0
+            echo "pulled from $candidate"
+            break
+        fi
+    done
     if [ "$pulled" -ne 0 ]; then
-        # The pull path is a guess about where the reporter wrote; the logcat above is the fact.
-        # List the candidates so a failing leg says where the report IS, not only where it is not.
-        echo "--- the app's files directory:"
-        adb shell 'ls -lR /sdcard/Android/data/com.qualflare.espresso.fixture/files 2>&1' || true
-        echo "--- androidx.test storage's own output directory:"
-        adb shell 'ls -lR /sdcard/googletest 2>&1' || true
-        adb shell 'ls -lR /storage/emulated/0/googletest 2>&1' || true
+        # Nothing could be pulled although the reporter says it wrote. Print what the shell user
+        # can actually see, which decides whether the adb pull the reporter PRINTS is advice that
+        # works for a user on this API level.
+        echo "--- who the shell is:"; adb shell id
+        echo "--- /storage/emulated/0:"; adb shell 'ls -l /storage/emulated/0 2>&1' | head -20
+        echo "--- /storage/emulated/0/Android/data:"; adb shell 'ls -l /storage/emulated/0/Android/data 2>&1' | head -20
+        echo "--- the app's own view, via run-as:"
+        adb shell 'run-as com.qualflare.espresso.fixture ls -l /storage/emulated/0/Android/data/com.qualflare.espresso.fixture/files/qualflare-results 2>&1' || true
+        echo "--- mounts mentioning emulated:"; adb shell 'mount 2>&1 | grep -i emulated' || true
     fi
 fi
 
