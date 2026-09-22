@@ -12,7 +12,7 @@ plugins {
 //
 // So it is generated into a source file instead. buildConfigField was the alternative; a
 // generated class avoids turning on buildFeatures.buildConfig for one string.
-version = "0.1.0-rc.1"
+version = "0.1.0"
 
 abstract class GenerateVersion : DefaultTask() {
     @get:Input
