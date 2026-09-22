@@ -36,9 +36,18 @@ android {
     }
 }
 
+// Normally the fixture tests the reporter in this repo. After a release it has to test the
+// PUBLISHED artifact instead: resolving from Maven Central is the only thing that proves what a
+// consumer actually gets -- the AAR's contents, its consumer ProGuard rules, and the version
+// baked into it. -Pqualflare.usePublished=0.1.0 switches the source.
+val publishedVersion: String? = providers.gradleProperty("qualflare.usePublished").orNull
+
 dependencies {
-    // The reporter under test, by project reference rather than a published version.
-    androidTestImplementation(project(":qualflare-espresso"))
+    if (publishedVersion != null) {
+        androidTestImplementation("com.qualflare:qualflare-espresso:$publishedVersion")
+    } else {
+        androidTestImplementation(project(":qualflare-espresso"))
+    }
 
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
